@@ -1,0 +1,22 @@
+[
+  {
+    "file": "C:\\Users\\uzann\\Downloads\\simple_c_project\\src\\main.c",
+    "signature": "int main(void)",
+    "comment": "",
+    "includes": [
+      "stdio.h",
+      "util.h"
+    ],
+    "llm_summary": null
+  },
+  {
+    "file": "C:\\Users\\uzann\\Downloads\\simple_c_project\\src\\util.c",
+    "signature": "void print_message(const char *filename)",
+    "comment": "",
+    "includes": [
+      "stdio.h",
+      "util.h"
+    ],
+    "llm_summary": null
+  }
+]
