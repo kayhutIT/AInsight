@@ -117,7 +117,7 @@ def call_openrouter(prompt: str) -> Optional[str]:
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
     payload = {"model": MODEL_NAME, "messages": [{"role":"user","content":prompt}]}
     print(
-    "-"*40
+    "-"*50
     +
     f"""
     Call LLM:
