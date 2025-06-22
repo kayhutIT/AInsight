@@ -116,6 +116,16 @@ def scan_project(root: pathlib.Path) -> List[FunctionInfo]:
 def call_openrouter(prompt: str) -> Optional[str]:
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
     payload = {"model": MODEL_NAME, "messages": [{"role":"user","content":prompt}]}
+    print(
+    "-"*40
+    +
+    f"""
+    Call LLM:
+    {prompt}
+    """
+    +
+    "-"*40
+    )
     try:
         r = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
         if r.status_code == 200:
