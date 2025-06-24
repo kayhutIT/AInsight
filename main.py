@@ -64,7 +64,7 @@ class FunctionInfo:
     resources: List[str]
     llm_summary: Optional[str] = None
 
-# Call OpenRouter API with retry, timing, and 401 diagnostics
+# HTTP session with retry strategy
 session = requests.Session()
 retry_strategy = Retry(
     total=2,
@@ -73,13 +73,15 @@ retry_strategy = Retry(
 )
 session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
 
+# Call OpenRouter API with retry, timing, and 401 diagnostics
+
 def call_openrouter(prompt: str) -> Optional[str]:
     headers = {
         "Authorization": f"Bearer {OPENROUTER_KEY}",
         "Content-Type": "application/json"
     }
     payload = {"model": MODEL_NAME, "messages": [{"role": "user", "content": prompt}]}
-    logger.debug(f"Sending LLM request: {prompt[:100]}…")
+    logger.debug(f"Sending LLM request (first 100 chars): {prompt[:100]}…")
     t0 = time.monotonic()
     try:
         r = session.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
@@ -90,7 +92,7 @@ def call_openrouter(prompt: str) -> Optional[str]:
             return content
         if r.status_code == 401:
             logger.error("401 Unauthorized: no auth credentials found.")
-            logger.error(f"Auth header sent: {headers.get('Authorization')} ")
+            logger.error(f"Auth header sent: {headers.get('Authorization')}")
             logger.error(f"Payload snippet: {json.dumps(payload)[:200]}…")
             sys.exit(1)
         else:
@@ -99,4 +101,150 @@ def call_openrouter(prompt: str) -> Optional[str]:
         logger.exception(f"Exception during LLM call: {e}")
     return None
 
-# (Remaining code for scanning, summarizing, and reporting goes here unchanged)
+# Extract includes from source text
+ def extract_includes(src: str) -> List[str]:
+    return INCLUDE_PATTERN.findall(src)
+
+# Extract function body by matching braces
+ def extract_body(src: str, start: int) -> str:
+    i = start
+    while i < len(src) and src[i] != '{':
+        i += 1
+    if i >= len(src):
+        return ''
+    brace = 1
+    i += 1
+    start_body = i
+    while i < len(src) and brace:
+        if src[i] == '{': brace += 1
+        elif src[i] == '}': brace -= 1
+        i += 1
+    return src[start_body:i-1]
+
+# Read a resource file by relative path
+ def read_resource(path_str: str, root: pathlib.Path) -> str:
+    path = (root / path_str).resolve()
+    if path.exists() and path.is_file():
+        try:
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except:
+            return ''
+    return ''
+
+# Extract functions and resources from a file
+ def extract_functions_from_file(path: pathlib.Path) -> List[FunctionInfo]:
+    try:
+        src = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        logger.warning(f"Cannot read {path}: {e}")
+        return []
+    includes = extract_includes(src)
+    funcs: List[FunctionInfo] = []
+    for m in FUNC_PATTERN.finditer(src):
+        sig = m.group(0).split('{')[0].strip()
+        pre = src[:m.start()].rstrip().splitlines()
+        coment: List[str] = []
+        for line in reversed(pre):
+            s = line.strip()
+            if s.startswith('//') or s.startswith('/*'):
+                coment.append(s)
+            elif s:
+                break
+        comment = '\n'.join(reversed(coment)).strip()
+        body = extract_body(src, m.start())
+        resources = FILE_CALL_PATTERN.findall(body)
+        funcs.append(FunctionInfo(
+            file=str(path), signature=sig,
+            includes=includes, comment=comment,
+            body=body, resources=resources
+        ))
+    return funcs
+
+# Recursively scan project directory
+def scan_project(root: pathlib.Path) -> List[FunctionInfo]:
+    all_funcs: List[FunctionInfo] = []
+    for f in root.rglob('*.[ch]'):
+        all_funcs.extend(extract_functions_from_file(f))
+    return all_funcs
+
+# Generate an executive brief based on all functions
+def generate_executive_brief(funcs: List[FunctionInfo]) -> str:
+    summary_prompt = (
+        "The following functions have been extracted from a C project:\n" +
+        "\n".join([f"- {f.signature}" for f in funcs]) +
+        "\n\n" +
+        "Provide a brief executive summary describing the overall purpose and flow of the codebase based on these functions."
+    )
+    return call_openrouter(summary_prompt) or ""
+
+# Parse CLI arguments
+def parse_args():
+    p = argparse.ArgumentParser(description="AInsight: always-running LLM summaries with executive brief")
+    p.add_argument('project', nargs='?', help='C project root')
+    p.add_argument('-o','--output', default=None, help='Output JSON file')
+    p.add_argument('--verbose', action='store_true', help='Enable debug logging')
+    return p.parse_args()
+
+# Apply defaults for IDE use
+def apply_defaults(args):
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+    if not args.project:
+        args.project = str(pathlib.Path(DEFAULT_PROJECT))
+    if not args.output:
+        args.output = DEFAULT_OUTPUT
+    return args
+
+# Main execution flow
+def run(args):
+    root = pathlib.Path(args.project).expanduser().resolve()
+    if not root.exists():
+        logger.error(f"Project not found: {root}")
+        sys.exit(1)
+    logger.info(f"Scanning project: {root}")
+    funcs = scan_project(root)
+    logger.info(f"Found {len(funcs)} functions")
+
+    # Executive brief
+    logger.info("Generating executive brief...")
+    exec_brief = generate_executive_brief(funcs)
+
+    # Always explain with LLM
+    logger.info("Generating detailed LLM summaries for each function...")
+    for idx, info in enumerate(funcs, start=1):
+        prompt = (
+            f"Function: {info.signature}\n"
+            f"Comment:\n{info.comment}\n"
+            f"Includes: {', '.join(info.includes)}\n"
+            f"Implementation snippet:\n{info.body.strip()}\n"
+            f"Resources: {', '.join(info.resources)}\n\n"
+            f"Describe the purpose and behavior of this function."
+        )
+        info.llm_summary = call_openrouter(prompt) or ""
+        logger.info(f"[{idx}/{len(funcs)}] done")
+
+    # Write JSON output including summaries and exec brief
+    out_path = pathlib.Path(args.output)
+    out_data = {"executive_brief": exec_brief, "functions": [asdict(f) for f in funcs]}
+    out_path.write_text(json.dumps(out_data, indent=2))
+    logger.info(f"JSON output written to: {out_path}")
+
+    # Write concise Markdown report
+    md = out_path.with_suffix('.md')
+    with md.open('w', encoding='utf-8') as fh:
+        fh.write(f"# Executive Summary\n\n{exec_brief}\n\n")
+        fh.write("---\n\n")
+        for info in funcs:
+            fh.write(f"## {pathlib.Path(info.file).name} – {info.signature}\n")
+            if info.comment:
+                fh.write(f"> {info.comment}\n")
+            fh.write(f"**Includes:** {', '.join(info.includes)}\n")
+            if info.resources:
+                fh.write(f"**Resources:** {', '.join(info.resources)}\n")
+            fh.write(f"\n**Summary:** {info.llm_summary}\n\n")
+    logger.info(f"Markdown report written to: {md}")
+
+if __name__ == '__main__':
+    args = parse_args()
+    args = apply_defaults(args)
+    run(args)
