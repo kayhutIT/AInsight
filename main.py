@@ -13,9 +13,9 @@ from typing import List, Optional
 import requests
 
 # ───── Configuration ─────────────────────────────────
-DEFAULT_PROJECT = pathlib.Path("C:/Users/uzann/Downloads/simple_c_project")
+DEFAULT_PROJECT = r"C:\Users\uzann\Downloads\Helicopter-Simulation-master\Helicopter-Simulation-master"
 DEFAULT_OUTPUT = "summary.json"
-
+logger = False
 # OpenRouter API settings
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -116,16 +116,17 @@ def scan_project(root: pathlib.Path) -> List[FunctionInfo]:
 def call_openrouter(prompt: str) -> Optional[str]:
     headers = {"Authorization": f"Bearer {OPENROUTER_KEY}", "Content-Type": "application/json"}
     payload = {"model": MODEL_NAME, "messages": [{"role":"user","content":prompt}]}
-    print(
-    "-"*50
-    +
-    f"""
-    Call LLM:
-    {prompt}
-    """
-    +
-    "-"*40
-    )
+    if logger:
+        print(
+        "-"*50
+        +
+        f"""
+        Call LLM:
+        {prompt}
+        """
+        +
+        "-"*40
+        )
     try:
         r = requests.post(OPENROUTER_URL, headers=headers, json=payload, timeout=30)
         if r.status_code == 200:
@@ -155,7 +156,7 @@ def parse_args():
 # Apply defaults for IDE use
 def apply_defaults(args):
     if not args.project:
-        args.project = str(DEFAULT_PROJECT)
+        args.project = str(pathlib.Path(DEFAULT_PROJECT))
     if not args.output:
         args.output = DEFAULT_OUTPUT
     return args
