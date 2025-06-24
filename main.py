@@ -17,7 +17,9 @@ from dataclasses import dataclass, asdict
 from typing import List, Optional
 
 # ───── Configuration ─────────────────────────────────
-DEFAULT_PROJECT = r"C:\Users\uzann\Downloads\Helicopter-Simulation-master\Helicopter-Simulation-master"
+# DEFAULT_PROJECT = r"C:\Users\uzann\Downloads\Helicopter-Simulation-master\Helicopter-Simulation-master"
+# DEFAULT_PROJECT = r"C:\Users\uzann\Downloads\fswebcam-master\fswebcam-master"
+DEFAULT_PROJECT = r"C:\Users\uzann\Downloads\dsvpn-master\dsvpn-master"
 DEFAULT_OUTPUT = "summary.json"
 
 # Setup logger
@@ -165,13 +167,13 @@ def scan_project(root: pathlib.Path) -> List[FunctionInfo]:
     return all_functions
 
 # Generate an executive brief
- def generate_executive_brief(funcs: List[FunctionInfo]) -> str:
-    prompt = (
-        "The following functions have been extracted from a C project:\n" +
-        "\n".join(f"- {f.signature}" for f in funcs) +
-        "\n\nProvide a brief executive summary describing the overall purpose and flow of the codebase."
-    )
-    return call_openrouter(prompt) or ""
+def generate_executive_brief(funcs: List[FunctionInfo]) -> str:
+   prompt = (
+       "The following functions have been extracted from a C project:\n" +
+       "\n".join(f"- {f.signature}" for f in funcs) +
+       "\n\nProvide a brief executive summary describing the overall purpose and flow of the codebase."
+   )
+   return call_openrouter(prompt) or ""
 
 # Parse CLI arguments
 def parse_args():

@@ -1,29 +1,685 @@
 {
-  "executive_brief": "",
+  "executive_brief": "This C codebase appears to implement a secure network tunneling application with cryptographic functionality, likely for creating VPN-like encrypted connections. Here's the high-level overview:\n\n**Core Components:**\n1. **Cryptography Engine**  \n   - Implements encryption/decryption (uc_encrypt/uc_decrypt) and hashing (uc_hash)\n   - Features permutation functions, state management (uc_state_init), and secure memory operations\n   - Uses 32-byte keys and 16-byte IVs (uc_state_init)\n\n2. **Network Tunnel Management**  \n   - Creates TUN devices (tun_create) with MTU configuration (tun_set_mtu)\n   - Handles tunnel I/O operations (tun_read/tun_write)\n\n3. **Secure Communication Protocol**  \n   - Implements TLS-like key exchange (client_key_exchange/server_key_exchange)\n   - Manages TCP connections (tcp_client/tcp_listener) with timeout handling\n   - Features reconnection logic (client_reconnect)\n\n4. **System Integration**  \n   - Firewall rule management (firewall_rules_cmds)\n   - Shell command execution (shell_cmd)\n   - Signal handling (signal_handler)\n\n**Flow:**  \nThe system initializes cryptographic state, establishes secure tunnels, and manages network connections through a main event loop (event_loop). It appears to support both client and server modes (context-based operations), with TCP as the transport layer and TUN devices for virtual networking.\n\n**Security Features:**\n- Secure memory operations (memzero)\n- Constant-time comparison (equals)\n- Network timeout handling (safe_read/safe_write)\n- Endianness handling for cross-platform compatibility\n\nThis is likely a bespoke VPN implementation focused on lightweight cryptography and network tunneling, possibly designed for embedded systems or privacy-focused applications given the custom cryptographic primitives and lack of external library dependencies.",
   "functions": [
     {
-      "file": "C:\\Users\\uzann\\Downloads\\simple_c_project\\src\\main.c",
-      "signature": "int main(void)",
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static inline void mem_cpy(unsigned char *dst, const unsigned char *src, size_t n)",
       "includes": [
-        "stdio.h",
-        "util.h"
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
       ],
       "comment": "",
-      "body": "\n    print_message(\"../resources/message.txt\");\n    return 0;\n",
-      "resources": [
-        "../resources/message.txt"
+      "body": "\n    size_t i;\n    for (i = 0; i < n; i++) {\n        dst[i] = src[i];\n    }\n",
+      "resources": [],
+      "llm_summary": "The `mem_cpy` function is a simple implementation of memory copy operation, similar to the standard C library's `memcpy()` function, but implemented as a static inline function. Here's a detailed description of its purpose and behavior:\n\n### Purpose:\n- The function copies `n` bytes of data from a source memory location (`src`) to a destination memory location (`dst`).\n- It is useful for transferring raw data between buffers, structures, or any memory regions efficiently.\n\n### Behavior:\n1. **Parameters**:\n   - `dst`: A pointer to the destination memory location where the data will be copied.\n   - `src`: A pointer to the source memory location from which data will be read (marked as `const` to ensure the source data isn't modified).\n   - `n`: The number of bytes to copy.\n\n2. **Implementation**:\n   - The function uses a simple `for` loop to iterate over each byte from `src` to `dst`, copying one byte at a time.\n   - The loop runs from `i = 0` to `i = n - 1`, ensuring that `n` bytes are copied.\n\n3. **Key Characteristics**:\n   - **No return value**: The function is `void`, meaning it doesn't return anything; instead, it operates directly on the provided memory pointers.\n   - **No overlap handling**: Unlike `memmove()`, this function does not check for memory overlap between `src` and `dst`. Using it with overlapping regions may lead to undefined behavior.\n   - **Marked as `static inline`**: The function is likely defined in a header file, and the compiler will attempt to inline the copy operation to avoid function call overhead.\n\n4. **Performance Considerations**:\n   - This is a byte-wise copy, which is straightforward but may not be the fastest for large blocks of memory. For better performance, platform-specific optimizations (e.g., using SIMD instructions) or calling the standard `memcpy()` (which may use architecture-specific optimizations) might be preferable.\n   - The included headers (e.g., `x86intrin.h`, `arm_neon.h`) suggest that optimized versions could be implemented for specific architectures (x86 with SIMD, ARM with NEON), but this version is a simple fallback.\n\n5. **Safety**:\n   - The caller must ensure:\n     - Both `dst` and `src` point to valid memory regions of at least `n` bytes.\n     - The regions do not overlap (unless intentional, though this is unsafe here).\n     - The pointers are properly aligned if alignment requirements exist for the target platform.\n\n### Example Usage:\n```c\nuint8_t src[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};\nuint8_t dst[10];\nmem_cpy(dst, src, 10);  // Copies all 10 bytes from src to dst.\n```\n\n### Notes:\n- The included headers (e.g., `sys/syscall.h`, `unistd.h`, `charm.h`) are unusual for a memory copy function and may hint at a broader context (e.g., kernel-level operations or custom libraries). However, they are unused in this implementation."
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static void permute(uint32_t st[12])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
       ],
+      "comment": "",
+      "body": "\n    const __m128i rhoEast2 = _mm_set_epi32(0x06050407, 0x02010003, 0x0e0d0c0f, 0x0a09080b);\n    __m128i       a, b, c, p, e;\n    int           r;\n\n    a = _mm_loadu_si128((const __m128i *) (const void *) &st[0]);\n    b = _mm_loadu_si128((const __m128i *) (const void *) &st[4]);\n    c = _mm_loadu_si128((const __m128i *) (const void *) &st[8]);\n    for (r = 0; r < XOODOO_ROUNDS; r++) {\n        p = _mm_shuffle_epi32(_mm_xor_si128(_mm_xor_si128(a, b), c), 0x93);\n        e = ROL32in128(p, 5);\n        p = ROL32in128(p, 14);\n        e = _mm_xor_si128(e, p);\n        a = _mm_xor_si128(a, e);\n        b = _mm_xor_si128(b, e);\n        c = _mm_xor_si128(c, e);\n        b = _mm_shuffle_epi32(b, 0x93);\n        c = ROL32in128(c, 11);\n        a = _mm_xor_si128(a, _mm_set_epi32(0, 0, 0, RK[r]));\n        a = _mm_xor_si128(a, _mm_andnot_si128(b, c));\n        b = _mm_xor_si128(b, _mm_andnot_si128(c, a));\n        c = _mm_xor_si128(c, _mm_andnot_si128(a, b));\n        b = ROL32in128(b, 1);\n        c = _mm_shuffle_epi8(c, rhoEast2);\n    }\n    _mm_storeu_si128((__m128i *) (void *) &st[0], a);\n    _mm_storeu_si128((__m128i *) (void *) &st[4], b);\n    _mm_storeu_si128((__m128i *) (void *) &st[8], c);\n",
+      "resources": [],
       "llm_summary": ""
     },
     {
-      "file": "C:\\Users\\uzann\\Downloads\\simple_c_project\\src\\util.c",
-      "signature": "void print_message(const char *filename)",
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static void permute(uint32_t st[12])",
       "includes": [
-        "stdio.h",
-        "util.h"
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
       ],
       "comment": "",
-      "body": "\n    FILE *file = fopen(filename, \"r\");\n    if (!file) {\n        perror(\"fopen\");\n        return;\n    }\n    char ch;\n    while ((ch = fgetc(file)) != EOF) {\n        putchar(ch);\n    }\n    fclose(file);\n",
+      "body": "\n    uint32x4_t a, b, c, d, e, f;\n    int        r;\n\n    a = vld1q_u32((const uint32_t *) (const void *) &st[0]);\n    b = vld1q_u32((const uint32_t *) (const void *) &st[4]);\n    c = vld1q_u32((const uint32_t *) (const void *) &st[8]);\n    for (r = 0; r < XOODOO_ROUNDS; r++) {\n        d = veorq_u32(veorq_u32(a, b), c);\n        d = vextq_u32(d, d, 3);\n        e = ROL32in128(d, 5);\n        f = ROL32in128(d, 14);\n        e = veorq_u32(e, f);\n        a = veorq_u32(a, e);\n        b = veorq_u32(b, e);\n        f = veorq_u32(c, e);\n        c = ROL32in128(f, 11);\n        b = vextq_u32(b, b, 3);\n        a = veorq_u32(a, vsetq_lane_u32(RK[r], vmovq_n_u32(0), 0));\n        e = vbicq_u32(c, b);\n        d = vbicq_u32(a, c);\n        f = vbicq_u32(b, a);\n        a = veorq_u32(a, e);\n        d = veorq_u32(b, d);\n        c = veorq_u32(c, f);\n        f = vextq_u32(c, c, 2);\n        b = ROL32in128(d, 1);\n        c = ROL32in128(f, 8);\n    }\n    vst1q_u32((uint32_t *) (void *) &st[0], a);\n    vst1q_u32((uint32_t *) (void *) &st[4], b);\n    vst1q_u32((uint32_t *) (void *) &st[8], c);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static void permute(uint32_t st[12])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    uint32_t e[4], a, b, c, t, r, i;\n\n    for (r = 0; r < XOODOO_ROUNDS; r++) {\n        for (i = 0; i < 4; i++) {\n            e[i] = ROTR32(st[i] ^ st[i + 4] ^ st[i + 8], 18);\n            e[i] ^= ROTR32(e[i], 9);\n        }\n        for (i = 0; i < 12; i++) {\n            st[i] ^= e[(i - 1) & 3];\n        }\n        SWAP32(st, 7, 4);\n        SWAP32(st, 7, 5);\n        SWAP32(st, 7, 6);\n        st[0] ^= RK[r];\n        for (i = 0; i < 4; i++) {\n            a         = st[i];\n            b         = st[i + 4];\n            c         = ROTR32(st[i + 8], 21);\n            st[i + 8] = ROTR32((b & ~a) ^ c, 24);\n            st[i + 4] = ROTR32((a & ~c) ^ b, 31);\n            st[i] ^= c & ~b;\n        }\n        SWAP32(st, 8, 10);\n        SWAP32(st, 9, 11);\n    }\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static inline void endian_swap_rate(uint32_t st[12])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    (void) st;\n#ifdef NATIVE_BIG_ENDIAN\n    size_t i;\n    for (i = 0; i < 4; i++) {\n        st[i] = __builtin_bswap32(st[i]);\n    }\n#endif\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static inline void endian_swap_all(uint32_t st[12])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    (void) st;\n#ifdef NATIVE_BIG_ENDIAN\n    size_t i;\n    for (i = 0; i < 12; i++) {\n        st[i] = __builtin_bswap32(st[i]);\n    }\n#endif\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static inline void xor128(void *out, const void *in)",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n#ifdef __SSSE3__\n    _mm_storeu_si128((__m128i *) out,\n                     _mm_xor_si128(_mm_loadu_si128((const __m128i *) out),\n                                   _mm_loadu_si128((const __m128i *) in)));\n#else\n    unsigned char       *out_ = (unsigned char *) out;\n    const unsigned char *in_  = (const unsigned char *) in;\n    size_t               i;\n\n    for (i = 0; i < 16; i++) {\n        out_[i] ^= in_[i];\n    }\n#endif\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static inline int equals(const unsigned char a[16], const unsigned char b[16], size_t len)",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char d = 0;\n    size_t        i;\n\n    len &= 15;\n    for (i = 0; i < len; i++) {\n        d |= a[i] ^ b[i];\n    }\n    return (1 ^ optblocker) & ((d - 1 ^ optblocker) >> 8);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "static inline void squeeze_permute(uint32_t st[12], unsigned char dst[16])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    endian_swap_rate(st);\n    memcpy(dst, st, 16);\n    endian_swap_rate(st);\n    permute(st);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "void uc_state_init(uint32_t st[12], const unsigned char key[32], const unsigned char iv[16])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    memcpy(&st[0], iv, 16);\n    memcpy(&st[4], key, 32);\n    endian_swap_all(st);\n    permute(st);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "void uc_encrypt(uint32_t st[12], unsigned char *msg, size_t msg_len, unsigned char tag[16])",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char squeezed[16];\n    unsigned char padded[16 + 1];\n    size_t        off = 0;\n    size_t        leftover;\n\n    if (msg_len > 16) {\n        for (; off < msg_len - 16; off += 16) {\n            endian_swap_rate(st);\n            memcpy(squeezed, st, 16);\n            xor128(st, &msg[off]);\n            endian_swap_rate(st);\n            xor128(&msg[off], squeezed);\n            permute(st);\n        }\n    }\n    leftover = msg_len - off;\n    memset(padded, 0, 16);\n    mem_cpy(padded, &msg[off], leftover);\n    padded[leftover] = 0x80;\n    endian_swap_rate(st);\n    memcpy(squeezed, st, 16);\n    xor128(st, padded);\n    endian_swap_rate(st);\n    st[11] ^= (1UL << 24 | (uint32_t) leftover >> 4 << 25 | 1UL << 26);\n    xor128(padded, squeezed);\n    mem_cpy(&msg[off], padded, leftover);\n    permute(st);\n    squeeze_permute(st, tag);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "int uc_decrypt(uint32_t st[12], unsigned char *msg, size_t msg_len,\n               const unsigned char *expected_tag, size_t expected_tag_len)",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char tag[16];\n    unsigned char squeezed[16];\n    unsigned char padded[16 + 1];\n    size_t        off = 0;\n    size_t        leftover;\n\n    if (msg_len > 16) {\n        for (; off < msg_len - 16; off += 16) {\n            endian_swap_rate(st);\n            memcpy(squeezed, st, 16);\n            xor128(&msg[off], squeezed);\n            xor128(st, &msg[off]);\n            endian_swap_rate(st);\n            permute(st);\n        }\n    }\n    leftover = msg_len - off;\n    memset(padded, 0, 16);\n    mem_cpy(padded, &msg[off], leftover);\n    endian_swap_rate(st);\n    memset(squeezed, 0, 16);\n    mem_cpy(squeezed, (const unsigned char *) (const void *) st, leftover);\n    xor128(&padded, squeezed);\n    padded[leftover] = 0x80;\n    xor128(st, padded);\n    endian_swap_rate(st);\n    st[11] ^= (1UL << 24 | (uint32_t) leftover >> 4 << 25 | 1UL << 26);\n    mem_cpy(&msg[off], padded, leftover);\n    permute(st);\n    squeeze_permute(st, tag);\n    if (equals(expected_tag, tag, expected_tag_len) == 0) {\n        memset(msg, 0, msg_len);\n        return -1;\n    }\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "void uc_hash(uint32_t st[12], unsigned char h[32], const unsigned char *msg, size_t len)",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char padded[16 + 1];\n    size_t        off = 0;\n    size_t        leftover;\n\n    if (len > 16) {\n        for (; off < len - 16; off += 16) {\n            endian_swap_rate(st);\n            xor128(st, &msg[off]);\n            endian_swap_rate(st);\n            permute(st);\n        }\n    }\n    leftover = len - off;\n    memset(padded, 0, 16);\n    mem_cpy(padded, &msg[off], leftover);\n    padded[leftover] = 0x80;\n    endian_swap_rate(st);\n    xor128(st, padded);\n    endian_swap_rate(st);\n    st[11] ^= (1UL << 24 | (uint32_t) leftover >> 4 << 25);\n    permute(st);\n    squeeze_permute(st, &h[0]);\n    squeeze_permute(st, &h[16]);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "void uc_memzero(void *buf, size_t len)",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n    volatile unsigned char *volatile buf_ = (volatile unsigned char *volatile) buf;\n    size_t i                              = (size_t) 0U;\n\n    while (i < len) {\n        buf_[i++] = 0U;\n    }\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\charm.c",
+      "signature": "void uc_randombytes_buf(void *buf, size_t len)",
+      "includes": [
+        "stdint.h",
+        "stdlib.h",
+        "string.h",
+        "x86intrin.h",
+        "arm_neon.h",
+        "sys/syscall.h",
+        "unistd.h",
+        "charm.h"
+      ],
+      "comment": "",
+      "body": "\n#ifdef __linux__\n    if ((size_t) syscall(SYS_getrandom, buf, (int) len, 0) != len) {\n        abort();\n    }\n#else\n    arc4random_buf(buf, len);\n#endif\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t safe_read(const int fd, void *const buf_, size_t count, const int timeout)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    struct pollfd  pfd;\n    unsigned char *buf    = (unsigned char *) buf_;\n    ssize_t        readnb = (ssize_t) -1;\n\n    while (readnb != 0 && count > (ssize_t) 0) {\n        while ((readnb = read(fd, buf, count)) < (ssize_t) 0) {\n            if (errno == EAGAIN) {\n                pfd.fd     = fd;\n                pfd.events = POLLIN;\n                if (poll(&pfd, (nfds_t) 1, timeout) <= 0) {\n                    return (ssize_t) -1;\n                }\n            } else if (errno != EINTR || exit_signal_received) {\n                return (ssize_t) -1;\n            }\n        }\n        count -= readnb;\n        buf += readnb;\n    }\n    return (ssize_t) (buf - (unsigned char *) buf_);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t safe_write(const int fd, const void *const buf_, size_t count, const int timeout)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    struct pollfd pfd;\n    const char   *buf = (const char *) buf_;\n    ssize_t       written;\n\n    while (count > (size_t) 0) {\n        while ((written = write(fd, buf, count)) < (ssize_t) 0) {\n            if (errno == EAGAIN) {\n                pfd.fd     = fd;\n                pfd.events = POLLOUT;\n                if (poll(&pfd, (nfds_t) 1, timeout) <= 0) {\n                    return (ssize_t) -1;\n                }\n            } else if (errno != EINTR || exit_signal_received) {\n                return (ssize_t) -1;\n            }\n        }\n        buf += written;\n        count -= written;\n    }\n    return (ssize_t) (buf - (const char *) buf_);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t safe_read_partial(const int fd, void *const buf_, const size_t max_count)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char *const buf = (unsigned char *) buf_;\n    ssize_t              readnb;\n\n    while ((readnb = read(fd, buf, max_count)) < (ssize_t) 0 && errno == EINTR &&\n           !exit_signal_received)\n        ;\n    return readnb;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t safe_write_partial(const int fd, void *const buf_, const size_t max_count)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char *const buf = (unsigned char *) buf_;\n    ssize_t              writenb;\n\n    while ((writenb = write(fd, buf, max_count)) < (ssize_t) 0 && errno == EINTR &&\n           !exit_signal_received)\n        ;\n    return writenb;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int tun_create(char if_name[IFNAMSIZ], const char *wanted_name)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    struct ifreq ifr;\n    int          fd;\n    int          err;\n\n    fd = open(\"/dev/net/tun\", O_RDWR);\n    if (fd == -1) {\n        fprintf(stderr, \"tun module not present. See https://sk.tl/2RdReigK\\n\");\n        return -1;\n    }\n    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;\n    snprintf(ifr.ifr_name, IFNAMSIZ, \"%s\", wanted_name == NULL ? \"\" : wanted_name);\n    if (ioctl(fd, TUNSETIFF, &ifr) != 0) {\n        err = errno;\n        (void) close(fd);\n        errno = err;\n        return -1;\n    }\n    snprintf(if_name, IFNAMSIZ, \"%s\", ifr.ifr_name);\n\n    return fd;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "static int tun_create_by_id(char if_name[IFNAMSIZ], unsigned int id)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    struct ctl_info     ci;\n    struct sockaddr_ctl sc;\n    int                 err;\n    int                 fd;\n\n    if ((fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL)) == -1) {\n        return -1;\n    }\n    memset(&ci, 0, sizeof ci);\n    snprintf(ci.ctl_name, sizeof ci.ctl_name, \"%s\", UTUN_CONTROL_NAME);\n    if (ioctl(fd, CTLIOCGINFO, &ci)) {\n        err = errno;\n        (void) close(fd);\n        errno = err;\n        return -1;\n    }\n    memset(&sc, 0, sizeof sc);\n    sc = (struct sockaddr_ctl) {\n        .sc_id      = ci.ctl_id,\n        .sc_len     = sizeof sc,\n        .sc_family  = AF_SYSTEM,\n        .ss_sysaddr = AF_SYS_CONTROL,\n        .sc_unit    = id + 1,\n    };\n    if (connect(fd, (struct sockaddr *) &sc, sizeof sc) != 0) {\n        err = errno;\n        (void) close(fd);\n        errno = err;\n        return -1;\n    }\n    snprintf(if_name, IFNAMSIZ, \"utun%u\", id);\n\n    return fd;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int tun_create(char if_name[IFNAMSIZ], const char *wanted_name)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned int id;\n    int          fd;\n\n    if (wanted_name == NULL || *wanted_name == 0) {\n        for (id = 0; id < 32; id++) {\n            if ((fd = tun_create_by_id(if_name, id)) != -1) {\n                return fd;\n            }\n        }\n        return -1;\n    }\n    if (sscanf(wanted_name, \"utun%u\", &id) != 1) {\n        errno = EINVAL;\n        return -1;\n    }\n    return tun_create_by_id(if_name, id);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int tun_create(char if_name[IFNAMSIZ], const char *wanted_name)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    char         path[64];\n    unsigned int id;\n    int          fd;\n\n    if (wanted_name == NULL || *wanted_name == 0) {\n        for (id = 0; id < 32; id++) {\n            snprintf(if_name, IFNAMSIZ, \"tun%u\", id);\n            snprintf(path, sizeof path, \"/dev/%s\", if_name);\n            if ((fd = open(path, O_RDWR)) != -1) {\n                return fd;\n            }\n        }\n        return -1;\n    }\n    snprintf(if_name, IFNAMSIZ, \"%s\", wanted_name);\n    snprintf(path, sizeof path, \"/dev/%s\", wanted_name);\n\n    return open(path, O_RDWR);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int tun_create(char if_name[IFNAMSIZ], const char *wanted_name)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    char path[64];\n\n    if (wanted_name == NULL) {\n        fprintf(stderr,\n                \"The tunnel device name must be specified on that platform \"\n                \"(try 'tun0')\\n\");\n        errno = EINVAL;\n        return -1;\n    }\n    snprintf(if_name, IFNAMSIZ, \"%s\", wanted_name);\n    snprintf(path, sizeof path, \"/dev/%s\", wanted_name);\n\n    return open(path, O_RDWR);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int tun_set_mtu(const char *if_name, int mtu)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    struct ifreq ifr;\n    int          fd;\n\n    if ((fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) {\n        return -1;\n    }\n    ifr.ifr_mtu = mtu;\n    snprintf(ifr.ifr_name, IFNAMSIZ, \"%s\", if_name);\n    if (ioctl(fd, SIOCSIFMTU, &ifr) != 0) {\n        close(fd);\n        return -1;\n    }\n    return close(fd);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t tun_read(int fd, void *data, size_t size)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    return safe_read_partial(fd, data, size);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t tun_write(int fd, const void *data, size_t size)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    return safe_write(fd, data, size, TIMEOUT);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t tun_read(int fd, void *data, size_t size)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    ssize_t  ret;\n    uint32_t family;\n\n    struct iovec iov[2] = {\n        {\n            .iov_base = &family,\n            .iov_len  = sizeof family,\n        },\n        {\n            .iov_base = data,\n            .iov_len  = size,\n        },\n    };\n\n    ret = readv(fd, iov, 2);\n    if (ret <= (ssize_t) 0) {\n        return -1;\n    }\n    if (ret <= (ssize_t) sizeof family) {\n        return 0;\n    }\n    return ret - sizeof family;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "ssize_t tun_write(int fd, const void *data, size_t size)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    uint32_t family;\n    ssize_t  ret;\n\n    if (size < 20) {\n        return 0;\n    }\n    switch (*(const uint8_t *) data >> 4) {\n    case 4:\n        family = htonl(AF_INET);\n        break;\n    case 6:\n        family = htonl(AF_INET6);\n        break;\n    default:\n        errno = EINVAL;\n        return -1;\n    }\n    struct iovec iov[2] = {\n        {\n            .iov_base = &family,\n            .iov_len  = sizeof family,\n        },\n        {\n            .iov_base = (void *) data,\n            .iov_len  = size,\n        },\n    };\n    ret = writev(fd, iov, 2);\n    if (ret <= (ssize_t) 0) {\n        return ret;\n    }\n    if (ret <= (ssize_t) sizeof family) {\n        return 0;\n    }\n    return ret - sizeof family;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int tcp_opts(int fd)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    int on = 1;\n\n    (void) setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (char *) &on, sizeof on);\n#ifdef TCP_QUICKACK\n    (void) setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, (char *) &on, sizeof on);\n#else\n    (void) setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *) &on, sizeof on);\n#endif\n#ifdef TCP_CONGESTION\n    (void) setsockopt(fd, IPPROTO_TCP, TCP_CONGESTION, OUTER_CONGESTION_CONTROL_ALG,\n                      sizeof OUTER_CONGESTION_CONTROL_ALG - 1);\n#endif\n#if BUFFERBLOAT_CONTROL && defined(TCP_NOTSENT_LOWAT)\n    (void) setsockopt(fd, IPPROTO_TCP, TCP_NOTSENT_LOWAT,\n                      (char *) (unsigned int[]) { NOTSENT_LOWAT }, sizeof(unsigned int));\n#endif\n#ifdef TCP_USER_TIMEOUT\n    (void) setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, (char *) (unsigned int[]) { TIMEOUT },\n                      sizeof(unsigned int));\n#endif\n#ifdef SO_MARK\n    (void) setsockopt(fd, SOL_SOCKET, SO_MARK, (char *) (unsigned int[]) { 42069U },\n                      sizeof(unsigned int));\n#endif\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "int shell_cmd(const char *substs[][2], const char *args_str, int silent)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    char  *args[64];\n    char   cmdbuf[4096];\n    pid_t  child;\n    size_t args_i = 0, cmdbuf_i = 0, args_str_i, i;\n    int    c, exit_status, is_space = 1;\n\n    errno = ENOSPC;\n    for (args_str_i = 0; (c = args_str[args_str_i]) != 0; args_str_i++) {\n        if (isspace((unsigned char) c)) {\n            if (!is_space) {\n                if (cmdbuf_i >= sizeof cmdbuf) {\n                    return -1;\n                }\n                cmdbuf[cmdbuf_i++] = 0;\n            }\n            is_space = 1;\n            continue;\n        }\n        if (is_space) {\n            if (args_i >= sizeof args / sizeof args[0]) {\n                return -1;\n            }\n            args[args_i++] = &cmdbuf[cmdbuf_i];\n        }\n        is_space = 0;\n        for (i = 0; substs[i][0] != NULL; i++) {\n            size_t pat_len = strlen(substs[i][0]), sub_len;\n            if (!strncmp(substs[i][0], &args_str[args_str_i], pat_len)) {\n                sub_len = strlen(substs[i][1]);\n                if (sizeof cmdbuf - cmdbuf_i <= sub_len) {\n                    return -1;\n                }\n                memcpy(&cmdbuf[cmdbuf_i], substs[i][1], sub_len);\n                args_str_i += pat_len - 1;\n                cmdbuf_i += sub_len;\n                break;\n            }\n        }\n        if (substs[i][0] == NULL) {\n            if (cmdbuf_i >= sizeof cmdbuf) {\n                return -1;\n            }\n            cmdbuf[cmdbuf_i++] = c;\n        }\n    }\n    if (!is_space) {\n        if (cmdbuf_i >= sizeof cmdbuf) {\n            return -1;\n        }\n        cmdbuf[cmdbuf_i++] = 0;\n    }\n    if (args_i >= sizeof args / sizeof args[0] || args_i == 0) {\n        return -1;\n    }\n    args[args_i] = NULL;\n    if ((child = fork()) == (pid_t) -1) {\n        return -1;\n    } else if (child == (pid_t) 0) {\n        if (silent) {\n            dup2(dup2(open(\"/dev/null\", O_WRONLY), 2), 1);\n        }\n        execvp(args[0], args);\n        _exit(1);\n    } else if (waitpid(child, &exit_status, 0) == (pid_t) -1 || !WIFEXITED(exit_status)) {\n        return -1;\n    }\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\os.c",
+      "signature": "Cmds firewall_rules_cmds(int is_server)",
+      "includes": [
+        "os.h",
+        "vpn.h"
+      ],
+      "comment": "",
+      "body": "\n    if (is_server) {\n#ifdef __linux__\n        static const char *set_cmds\n            []   = { \"sysctl net.ipv4.ip_forward=1\",\n                     \"ip addr add $LOCAL_TUN_IP peer $REMOTE_TUN_IP dev $IF_NAME\",\n                     \"ip -6 addr add $LOCAL_TUN_IP6 peer $REMOTE_TUN_IP6/96 dev $IF_NAME\",\n                     \"ip link set dev $IF_NAME up\",\n                     \"iptables -t raw -I PREROUTING ! -i $IF_NAME -d $LOCAL_TUN_IP -m addrtype ! \"\n                       \"--src-type LOCAL -j DROP\",\n                     \"iptables -t nat -A POSTROUTING -o $EXT_IF_NAME -s $REMOTE_TUN_IP -j MASQUERADE\",\n                     \"iptables -t filter -A FORWARD -i $EXT_IF_NAME -o $IF_NAME -m state --state \"\n                       \"RELATED,ESTABLISHED -j ACCEPT\",\n                     \"iptables -t filter -A FORWARD -i $IF_NAME -o $EXT_IF_NAME -j ACCEPT\",\n                     NULL },\n   *unset_cmds[] = {\n       \"iptables -t nat -D POSTROUTING -o $EXT_IF_NAME -s $REMOTE_TUN_IP -j MASQUERADE\",\n       \"iptables -t filter -D FORWARD -i $EXT_IF_NAME -o $IF_NAME -m state --state \"\n       \"RELATED,ESTABLISHED -j ACCEPT\",\n       \"iptables -t filter -D FORWARD -i $IF_NAME -o $EXT_IF_NAME -j ACCEPT\",\n       \"iptables -t raw -D PREROUTING ! -i $IF_NAME -d $LOCAL_TUN_IP -m addrtype ! \"\n       \"--src-type LOCAL -j DROP\",\n       NULL\n   };\n#elif defined(__APPLE__) || defined(__OpenBSD__) || defined(__FreeBSD__) || \\\n    defined(__DragonFly__) || defined(__NetBSD__)\n        static const char *set_cmds\n            []   = { \"sysctl -w net.inet.ip.forwarding=1\",\n                     \"ifconfig $IF_NAME $LOCAL_TUN_IP $REMOTE_TUN_IP up\",\n                     \"ifconfig $IF_NAME inet6 $LOCAL_TUN_IP6 $REMOTE_TUN_IP6 prefixlen 128 up\",\n                     NULL },\n   *unset_cmds[] = { NULL, NULL };\n#else\n        static const char *const *set_cmds = NULL, *const *unset_cmds = NULL;\n#endif\n        return (Cmds) { set_cmds, unset_cmds };\n    } else {\n#if defined(__APPLE__) || defined(__OpenBSD__) || defined(__FreeBSD__) || \\\n    defined(__DragonFly__) || defined(__NetBSD__)\n        static const char *set_cmds\n            [] = { \"ifconfig $IF_NAME $LOCAL_TUN_IP $REMOTE_TUN_IP up\",\n                   \"ifconfig $IF_NAME inet6 $LOCAL_TUN_IP6 $REMOTE_TUN_IP6 prefixlen 128 up\",\n#ifndef NO_DEFAULT_ROUTES\n                   \"route add $EXT_IP $EXT_GW_IP\",\n                   \"route add 0/1 $REMOTE_TUN_IP\",\n                   \"route add 128/1 $REMOTE_TUN_IP\",\n                   \"route add -inet6 -blackhole 0000::/1 $REMOTE_TUN_IP6\",\n                   \"route add -inet6 -blackhole 8000::/1 $REMOTE_TUN_IP6\",\n#endif\n                   NULL },\n   *unset_cmds[] = {\n#ifndef NO_DEFAULT_ROUTES\n       \"route delete $EXT_IP\",\n       \"route delete 0/1\",\n       \"route delete 128/1\",\n       \"route delete -inet6 0000::/1\",\n       \"route delete -inet6 8000::/1\",\n#endif\n       NULL\n   };\n#elif defined(__linux__)\n        static const char *set_cmds\n            [] = { \"sysctl net.ipv4.tcp_congestion_control=bbr\",\n                   \"ip link set dev $IF_NAME up\",\n                   \"iptables -t raw -I PREROUTING ! -i $IF_NAME -d $LOCAL_TUN_IP -m addrtype ! \"\n                   \"--src-type LOCAL -j DROP\",\n                   \"ip addr add $LOCAL_TUN_IP peer $REMOTE_TUN_IP dev $IF_NAME\",\n                   \"ip -6 addr add $LOCAL_TUN_IP6 peer $REMOTE_TUN_IP6/96 dev $IF_NAME\",\n#ifndef NO_DEFAULT_ROUTES\n                   \"ip route add default dev $IF_NAME table 42069\",\n                   \"ip -6 route add default dev $IF_NAME table 42069\",\n                   \"ip rule add not fwmark 42069 table 42069\",\n                   \"ip -6 rule add not fwmark 42069 table 42069\",\n                   \"ip rule add table main suppress_prefixlength 0\",\n                   \"ip -6 rule add table main suppress_prefixlength 0\",\n#endif\n                   NULL },\n   *unset_cmds[] = {\n#ifndef NO_DEFAULT_ROUTES\n       \"ip rule delete table 42069\",\n       \"ip -6 rule delete table 42069\",\n       \"ip rule delete table main suppress_prefixlength 0\",\n       \"ip -6 rule delete table main suppress_prefixlength 0\",\n#endif\n       \"iptables -t raw -D PREROUTING ! -i $IF_NAME -d $LOCAL_TUN_IP -m addrtype ! \"\n       \"--src-type LOCAL -j DROP\",\n       NULL\n   };\n#else\n        static const char *const *set_cmds = NULL, *const *unset_cmds = NULL;\n#endif\n        return (Cmds) { set_cmds, unset_cmds };\n    }\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static void signal_handler(int sig)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    signal(sig, SIG_DFL);\n    exit_signal_received = 1;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int firewall_rules(Context *context, int set, int silent)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    const char        *substs[][2] = { { \"$LOCAL_TUN_IP6\", context->local_tun_ip6 },\n                                       { \"$REMOTE_TUN_IP6\", context->remote_tun_ip6 },\n                                       { \"$LOCAL_TUN_IP\", context->local_tun_ip },\n                                       { \"$REMOTE_TUN_IP\", context->remote_tun_ip },\n                                       { \"$EXT_IP\", context->server_ip },\n                                       { \"$EXT_PORT\", context->server_port },\n                                       { \"$EXT_IF_NAME\", context->ext_if_name },\n                                       { \"$EXT_GW_IP\", context->ext_gw_ip },\n                                       { \"$IF_NAME\", context->if_name },\n                                       { NULL, NULL } };\n    const char *const *cmds;\n    size_t             i;\n\n    if (context->firewall_rules_set == set) {\n        return 0;\n    }\n    if ((cmds = (set ? firewall_rules_cmds(context->is_server).set\n                     : firewall_rules_cmds(context->is_server).unset)) == NULL) {\n        fprintf(stderr,\n                \"Routing commands for that operating system have not been \"\n                \"added yet.\\n\");\n        return 0;\n    }\n    for (i = 0; cmds[i] != NULL; i++) {\n        if (shell_cmd(substs, cmds[i], silent) != 0) {\n            fprintf(stderr, \"Unable to run [%s]: [%s]\\n\", cmds[i], strerror(errno));\n            return -1;\n        }\n    }\n    context->firewall_rules_set = set;\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int tcp_client(const char *address, const char *port)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    struct addrinfo hints, *res;\n    int             eai;\n    int             client_fd;\n    int             err;\n\n    printf(\"Connecting to %s:%s...\\n\", address, port);\n    memset(&hints, 0, sizeof hints);\n    hints.ai_flags    = 0;\n    hints.ai_family   = AF_UNSPEC;\n    hints.ai_socktype = SOCK_STREAM;\n    hints.ai_addr     = NULL;\n    if ((eai = getaddrinfo(address, port, &hints, &res)) != 0 ||\n        (res->ai_family != AF_INET && res->ai_family != AF_INET6)) {\n        fprintf(stderr, \"Unable to create the client socket: [%s]\\n\", gai_strerror(eai));\n        errno = EINVAL;\n        return -1;\n    }\n    if ((client_fd = socket(res->ai_family, SOCK_STREAM, IPPROTO_TCP)) == -1 ||\n        tcp_opts(client_fd) != 0 ||\n        connect(client_fd, (const struct sockaddr *) res->ai_addr, res->ai_addrlen) != 0) {\n        freeaddrinfo(res);\n        err = errno;\n        (void) close(client_fd);\n        errno = err;\n        return -1;\n    }\n    freeaddrinfo(res);\n    return client_fd;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int tcp_listener(const char *address, const char *port)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    struct addrinfo hints, *res;\n    int             eai, err;\n    int             listen_fd;\n    int             backlog = 1;\n\n    memset(&hints, 0, sizeof hints);\n    hints.ai_flags    = AI_PASSIVE;\n    hints.ai_family   = AF_UNSPEC;\n    hints.ai_socktype = SOCK_STREAM;\n    hints.ai_addr     = NULL;\n#if defined(__OpenBSD__) || defined(__DragonFly__)\n    if (address == NULL) {\n        hints.ai_family = AF_INET;\n    }\n#endif\n    if ((eai = getaddrinfo(address, port, &hints, &res)) != 0 ||\n        (res->ai_family != AF_INET && res->ai_family != AF_INET6)) {\n        fprintf(stderr, \"Unable to create the listening socket: [%s]\\n\", gai_strerror(eai));\n        errno = EINVAL;\n        return -1;\n    }\n    if ((listen_fd = socket(res->ai_family, SOCK_STREAM, IPPROTO_TCP)) == -1 ||\n        setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, (char *) (int[]) { 1 }, sizeof(int)) != 0) {\n        err = errno;\n        (void) close(listen_fd);\n        freeaddrinfo(res);\n        errno = err;\n        return -1;\n    }\n#if defined(IPPROTO_IPV6) && defined(IPV6_V6ONLY)\n    (void) setsockopt(listen_fd, IPPROTO_IPV6, IPV6_V6ONLY, (char *) (int[]) { 0 }, sizeof(int));\n#endif\n#ifdef TCP_DEFER_ACCEPT\n    (void) setsockopt(listen_fd, SOL_TCP, TCP_DEFER_ACCEPT,\n                      (char *) (int[]) { ACCEPT_TIMEOUT / 1000 }, sizeof(int));\n#endif\n    printf(\"Listening to %s:%s\\n\", address == NULL ? \"*\" : address, port);\n    if (bind(listen_fd, (struct sockaddr *) res->ai_addr, (socklen_t) res->ai_addrlen) != 0 ||\n        listen(listen_fd, backlog) != 0) {\n        freeaddrinfo(res);\n        return -1;\n    }\n    freeaddrinfo(res);\n\n    return listen_fd;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static void client_disconnect(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    if (context->client_fd == -1) {\n        return;\n    }\n    (void) close(context->client_fd);\n    context->client_fd          = -1;\n    context->fds[POLLFD_CLIENT] = (struct pollfd) { .fd = -1, .events = 0 };\n    memset(context->uc_st, 0, sizeof context->uc_st);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int server_key_exchange(Context *context, const int client_fd)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    uint32_t st[12];\n    uint8_t  pkt1[32 + 8 + 32], pkt2[32 + 32];\n    uint8_t  h[32];\n    uint8_t  k[32];\n    uint8_t  iv[16] = { 0 };\n    uint64_t ts, now;\n\n    memcpy(st, context->uc_kx_st, sizeof st);\n    errno = EACCES;\n    if (safe_read(client_fd, pkt1, sizeof pkt1, ACCEPT_TIMEOUT) != sizeof pkt1) {\n        return -1;\n    }\n    uc_hash(st, h, pkt1, 32 + 8);\n    if (memcmp(h, pkt1 + 32 + 8, 32) != 0) {\n        return -1;\n    }\n    memcpy(&ts, pkt1 + 32, 8);\n    ts  = endian_swap64(ts);\n    now = time(NULL);\n    if ((ts > now && ts - now > TS_TOLERANCE) || (now > ts && now - ts > TS_TOLERANCE)) {\n        fprintf(stderr,\n                \"Clock difference is too large: %\" PRIu64 \" (client) vs %\" PRIu64 \" (server)\\n\", ts,\n                now);\n        return -1;\n    }\n    uc_randombytes_buf(pkt2, 32);\n    uc_hash(st, pkt2 + 32, pkt2, 32);\n    if (safe_write_partial(client_fd, pkt2, sizeof pkt2) != sizeof pkt2) {\n        return -1;\n    }\n    uc_hash(st, k, NULL, 0);\n    iv[0] = context->is_server;\n    uc_state_init(context->uc_st[0], k, iv);\n    iv[0] ^= 1;\n    uc_state_init(context->uc_st[1], k, iv);\n\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int tcp_accept(Context *context, int listen_fd)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    char                    client_ip[NI_MAXHOST] = { 0 };\n    struct sockaddr_storage client_ss;\n    socklen_t               client_ss_len = sizeof client_ss;\n    int                     client_fd;\n    int                     err;\n\n    if ((client_fd = accept(listen_fd, (struct sockaddr *) &client_ss, &client_ss_len)) < 0) {\n        return -1;\n    }\n    if (client_ss_len <= (socklen_t) 0U) {\n        (void) close(client_fd);\n        errno = EINTR;\n        return -1;\n    }\n    if (tcp_opts(client_fd) != 0) {\n        err = errno;\n        (void) close(client_fd);\n        errno = err;\n        return -1;\n    }\n    getnameinfo((const struct sockaddr *) (const void *) &client_ss, client_ss_len, client_ip,\n                sizeof client_ip, NULL, 0, NI_NUMERICHOST | NI_NUMERICSERV);\n    printf(\"Connection attempt from [%s]\\n\", client_ip);\n    context->congestion = 0;\n    fcntl(client_fd, F_SETFL, fcntl(client_fd, F_GETFL, 0) | O_NONBLOCK);\n    if (context->client_fd != -1 &&\n        memcmp(context->client_ip, client_ip, sizeof context->client_ip) != 0) {\n        fprintf(stderr, \"Closing: a session from [%s] is already active\\n\", context->client_ip);\n        (void) close(client_fd);\n        errno = EBUSY;\n        return -1;\n    }\n    if (server_key_exchange(context, client_fd) != 0) {\n        fprintf(stderr, \"Authentication failed\\n\");\n        (void) close(client_fd);\n        errno = EACCES;\n        return -1;\n    }\n    memcpy(context->client_ip, client_ip, sizeof context->client_ip);\n    return client_fd;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int client_key_exchange(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    uint32_t st[12];\n    uint8_t  pkt1[32 + 8 + 32], pkt2[32 + 32];\n    uint8_t  h[32];\n    uint8_t  k[32];\n    uint8_t  iv[16] = { 0 };\n    uint64_t now;\n\n    memcpy(st, context->uc_kx_st, sizeof st);\n    uc_randombytes_buf(pkt1, 32);\n    now = endian_swap64(time(NULL));\n    memcpy(pkt1 + 32, &now, 8);\n    uc_hash(st, pkt1 + 32 + 8, pkt1, 32 + 8);\n    if (safe_write(context->client_fd, pkt1, sizeof pkt1, TIMEOUT) != sizeof pkt1) {\n        return -1;\n    }\n    errno = EACCES;\n    if (safe_read(context->client_fd, pkt2, sizeof pkt2, TIMEOUT) != sizeof pkt2) {\n        return -1;\n    }\n    uc_hash(st, h, pkt2, 32);\n    if (memcmp(h, pkt2 + 32, 32) != 0) {\n        return -1;\n    }\n    uc_hash(st, k, NULL, 0);\n    iv[0] = context->is_server;\n    uc_state_init(context->uc_st[0], k, iv);\n    iv[0] ^= 1;\n    uc_state_init(context->uc_st[1], k, iv);\n\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int client_connect(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    const char *ext_gw_ip = NULL;\n\n    context->client_buf.pos = 0;\n    memset(context->client_buf.data, 0, sizeof context->client_buf.data);\n#ifndef NO_DEFAULT_ROUTES\n    if (context->wanted_ext_gw_ip == NULL && (ext_gw_ip = get_default_gw_ip()) != NULL &&\n        strcmp(ext_gw_ip, context->ext_gw_ip) != 0) {\n        printf(\"Gateway changed from [%s] to [%s]\\n\", context->ext_gw_ip, ext_gw_ip);\n        firewall_rules(context, 0, 0);\n        snprintf(context->ext_gw_ip, sizeof context->ext_gw_ip, \"%s\", ext_gw_ip);\n        firewall_rules(context, 1, 0);\n    }\n#endif\n    memset(context->uc_st, 0, sizeof context->uc_st);\n    context->uc_st[context->is_server][0] ^= 1;\n    context->client_fd = tcp_client(context->server_ip, context->server_port);\n    if (context->client_fd == -1) {\n        perror(\"Client connection failed\");\n        return -1;\n    }\n    fcntl(context->client_fd, F_SETFL, fcntl(context->client_fd, F_GETFL, 0) | O_NONBLOCK);\n    context->congestion = 0;\n    if (client_key_exchange(context) != 0) {\n        fprintf(stderr, \"Authentication failed\\n\");\n        client_disconnect(context);\n        sleep(1);\n        return -1;\n    }\n    firewall_rules(context, 1, 0);\n    context->fds[POLLFD_CLIENT] =\n        (struct pollfd) { .fd = context->client_fd, .events = POLLIN, .revents = 0 };\n    puts(\"Connected\");\n\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int client_reconnect(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned int i;\n\n    client_disconnect(context);\n    if (context->is_server) {\n        return 0;\n    }\n    for (i = 0; exit_signal_received == 0 && i < RECONNECT_ATTEMPTS; i++) {\n        puts(\"Trying to reconnect\");\n        sleep(i > 3 ? 3 : i);\n        if (client_connect(context) == 0) {\n            return 0;\n        }\n    }\n    return -1;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int event_loop(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    struct pollfd *const fds = context->fds;\n    Buf                  tun_buf;\n    Buf                 *client_buf = &context->client_buf;\n    ssize_t              len;\n    int                  found_fds;\n    int                  new_client_fd;\n\n    if (exit_signal_received != 0) {\n        return -2;\n    }\n    if ((found_fds = poll(fds, POLLFD_COUNT, 1500)) == -1) {\n        return errno == EINTR ? 0 : -1;\n    }\n    if (fds[POLLFD_LISTENER].revents & POLLIN) {\n        new_client_fd = tcp_accept(context, context->listen_fd);\n        if (new_client_fd == -1) {\n            perror(\"Accepting a new client failed\");\n            return 0;\n        }\n        if (context->client_fd != -1) {\n            (void) close(context->client_fd);\n            sleep(1);\n        }\n        context->client_fd = new_client_fd;\n        client_buf->pos    = 0;\n        memset(client_buf->data, 0, sizeof client_buf->data);\n        puts(\"Session established\");\n        fds[POLLFD_CLIENT] = (struct pollfd) { .fd = context->client_fd, .events = POLLIN };\n    }\n    if ((fds[POLLFD_TUN].revents & POLLERR) || (fds[POLLFD_TUN].revents & POLLHUP)) {\n        puts(\"HUP (tun)\");\n        return -1;\n    }\n    if (fds[POLLFD_TUN].revents & POLLIN) {\n        len = tun_read(context->tun_fd, tun_buf.data, sizeof tun_buf.data);\n        if (len <= 0) {\n            perror(\"tun_read\");\n            return -1;\n        }\n#ifdef BUFFERBLOAT_CONTROL\n        if (context->congestion) {\n            context->congestion = 0;\n            return 0;\n        }\n#endif\n        if (context->client_fd != -1) {\n            unsigned char tag_full[16];\n            ssize_t       writenb;\n            uint16_t      binlen = endian_swap16((uint16_t) len);\n\n            memcpy(tun_buf.len, &binlen, 2);\n            uc_encrypt(context->uc_st[0], tun_buf.data, len, tag_full);\n            memcpy(tun_buf.tag, tag_full, TAG_LEN);\n            writenb = safe_write_partial(context->client_fd, tun_buf.len, 2U + TAG_LEN + len);\n            if (writenb < (ssize_t) 0) {\n                context->congestion = 1;\n                writenb             = (ssize_t) 0;\n            }\n            if (writenb != (ssize_t) (2U + TAG_LEN + len)) {\n                writenb = safe_write(context->client_fd, tun_buf.len + writenb,\n                                     2U + TAG_LEN + len - writenb, TIMEOUT);\n            }\n            if (writenb < (ssize_t) 0) {\n                perror(\"Unable to write data to the TCP socket\");\n                return client_reconnect(context);\n            }\n        }\n    }\n    if ((fds[POLLFD_CLIENT].revents & POLLERR) || (fds[POLLFD_CLIENT].revents & POLLHUP)) {\n        puts(\"Client disconnected\");\n        return client_reconnect(context);\n    }\n    if (fds[POLLFD_CLIENT].revents & POLLIN) {\n        uint16_t binlen;\n        size_t   len_with_header;\n        ssize_t  readnb;\n\n        if ((readnb = safe_read_partial(context->client_fd, client_buf->len + client_buf->pos,\n                                        2 + TAG_LEN + MAX_PACKET_LEN - client_buf->pos)) <= 0) {\n            puts(\"Client disconnected\");\n            return client_reconnect(context);\n        }\n        client_buf->pos += readnb;\n        while (client_buf->pos >= 2 + TAG_LEN) {\n            memcpy(&binlen, client_buf->len, 2);\n            len = (ssize_t) endian_swap16(binlen);\n            if (client_buf->pos < (len_with_header = 2 + TAG_LEN + (size_t) len)) {\n                break;\n            }\n            if (len > sizeof client_buf->data || uc_decrypt(context->uc_st[1], client_buf->data,\n                                                            len, client_buf->tag, TAG_LEN) != 0) {\n                fprintf(stderr, \"Corrupted stream\\n\");\n                sleep(1);\n                return client_reconnect(context);\n            }\n            if (tun_write(context->tun_fd, client_buf->data, len) != len) {\n                perror(\"tun_write\");\n            }\n            if (2 + TAG_LEN + MAX_PACKET_LEN != len_with_header) {\n                unsigned char *rbuf      = client_buf->len;\n                size_t         remaining = client_buf->pos - len_with_header;\n                memmove(rbuf, rbuf + len_with_header, remaining);\n            }\n            client_buf->pos -= len_with_header;\n        }\n    }\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int doit(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    context->client_fd = context->listen_fd = -1;\n    memset(context->fds, 0, sizeof *context->fds);\n    context->fds[POLLFD_TUN] =\n        (struct pollfd) { .fd = context->tun_fd, .events = POLLIN, .revents = 0 };\n    if (context->is_server) {\n        if ((context->listen_fd = tcp_listener(context->server_ip_or_name, context->server_port)) ==\n            -1) {\n            perror(\"Unable to set up a TCP server\");\n            return -1;\n        }\n        context->fds[POLLFD_LISTENER] = (struct pollfd) {\n            .fd     = context->listen_fd,\n            .events = POLLIN,\n        };\n    }\n    if (!context->is_server && client_reconnect(context) != 0) {\n        fprintf(stderr, \"Unable to connect to server: [%s]\\n\", strerror(errno));\n        return -1;\n    }\n    while (event_loop(context) == 0)\n        ;\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int load_key_file(Context *context, const char *file)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    unsigned char key[32];\n    int           fd;\n\n    if ((fd = open(file, O_RDONLY)) == -1) {\n        return -1;\n    }\n    if (safe_read(fd, key, sizeof key, -1) != sizeof key) {\n        (void) close(fd);\n        return -1;\n    }\n    uc_state_init(context->uc_kx_st, key, (const unsigned char *) \"VPN Key Exchange\");\n    uc_memzero(key, sizeof key);\n\n    return close(fd);\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static void get_tun6_addresses(Context *context)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    static char local_tun_ip6[40], remote_tun_ip6[40];\n\n    snprintf(local_tun_ip6, sizeof local_tun_ip6, \"64:ff9b::%s\", context->local_tun_ip);\n    snprintf(remote_tun_ip6, sizeof remote_tun_ip6, \"64:ff9b::%s\", context->remote_tun_ip);\n    context->local_tun_ip6  = local_tun_ip6;\n    context->remote_tun_ip6 = remote_tun_ip6;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "static int resolve_ip(char *ip, size_t sizeof_ip, const char *ip_or_name)",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    struct addrinfo hints, *res = NULL;\n    int             eai;\n\n    memset(&hints, 0, sizeof hints);\n    hints.ai_flags    = 0;\n    hints.ai_family   = AF_UNSPEC;\n    hints.ai_socktype = SOCK_STREAM;\n    hints.ai_addr     = NULL;\n    if ((eai = getaddrinfo(ip_or_name, NULL, &hints, &res)) != 0 ||\n        (res->ai_family != AF_INET && res->ai_family != AF_INET6) ||\n        (eai = getnameinfo(res->ai_addr, res->ai_addrlen, ip, (socklen_t) sizeof_ip, NULL, 0,\n                           NI_NUMERICHOST | NI_NUMERICSERV)) != 0) {\n        fprintf(stderr, \"Unable to resolve [%s]: [%s]\\n\", ip_or_name, gai_strerror(eai));\n        if (res != NULL) {\n            freeaddrinfo(res);\n        }\n        return -1;\n    }\n    freeaddrinfo(res);\n    return 0;\n",
+      "resources": [],
+      "llm_summary": ""
+    },
+    {
+      "file": "C:\\Users\\uzann\\Downloads\\dsvpn-master\\dsvpn-master\\src\\vpn.c",
+      "signature": "int main(int argc, char *argv[])",
+      "includes": [
+        "vpn.h",
+        "charm.h",
+        "os.h"
+      ],
+      "comment": "",
+      "body": "\n    Context     context;\n    const char *ext_gw_ip;\n\n    if (argc < 3) {\n        usage();\n    }\n    memset(&context, 0, sizeof context);\n    context.is_server = strcmp(argv[1], \"server\") == 0;\n    if (load_key_file(&context, argv[2]) != 0) {\n        fprintf(stderr, \"Unable to load the key file [%s]\\n\", argv[2]);\n        return 1;\n    }\n    context.server_ip_or_name = (argc <= 3 || strcmp(argv[3], \"auto\") == 0) ? NULL : argv[3];\n    if (context.server_ip_or_name == NULL && !context.is_server) {\n        usage();\n    }\n    context.server_port      = (argc <= 4 || strcmp(argv[4], \"auto\") == 0) ? DEFAULT_PORT : argv[4];\n    context.wanted_if_name   = (argc <= 5 || strcmp(argv[5], \"auto\") == 0) ? NULL : argv[5];\n    context.local_tun_ip     = (argc <= 6 || strcmp(argv[6], \"auto\") == 0)\n                                   ? (context.is_server ? DEFAULT_SERVER_IP : DEFAULT_CLIENT_IP)\n                                   : argv[6];\n    context.remote_tun_ip    = (argc <= 7 || strcmp(argv[7], \"auto\") == 0)\n                                   ? (context.is_server ? DEFAULT_CLIENT_IP : DEFAULT_SERVER_IP)\n                                   : argv[7];\n    context.wanted_ext_gw_ip = (argc <= 8 || strcmp(argv[8], \"auto\") == 0) ? NULL : argv[8];\n    ext_gw_ip = context.wanted_ext_gw_ip ? context.wanted_ext_gw_ip : get_default_gw_ip();\n    snprintf(context.ext_gw_ip, sizeof context.ext_gw_ip, \"%s\", ext_gw_ip == NULL ? \"\" : ext_gw_ip);\n    if (ext_gw_ip == NULL && !context.is_server) {\n        fprintf(stderr, \"Unable to automatically determine the gateway IP\\n\");\n        return 1;\n    }\n    if ((context.ext_if_name = get_default_ext_if_name()) == NULL && context.is_server) {\n        fprintf(stderr, \"Unable to automatically determine the external interface\\n\");\n        return 1;\n    }\n    get_tun6_addresses(&context);\n    context.tun_fd = tun_create(context.if_name, context.wanted_if_name);\n    if (context.tun_fd == -1) {\n        perror(\"tun device creation\");\n        return 1;\n    }\n    printf(\"Interface: [%s]\\n\", context.if_name);\n    if (tun_set_mtu(context.if_name, DEFAULT_MTU) != 0) {\n        perror(\"mtu\");\n    }\n#ifdef __OpenBSD__\n    pledge(\"stdio proc exec dns inet\", NULL);\n#endif\n    context.firewall_rules_set = -1;\n    if (context.server_ip_or_name != NULL &&\n        resolve_ip(context.server_ip, sizeof context.server_ip, context.server_ip_or_name) != 0) {\n        firewall_rules(&context, 0, 1);\n        return 1;\n    }\n    if (context.is_server) {\n        if (firewall_rules(&context, 1, 0) != 0) {\n            return -1;\n        }\n#ifdef __OpenBSD__\n        printf(\"\\nAdd the following rule to /etc/pf.conf:\\npass out from %s nat-to egress\\n\\n\",\n               context.remote_tun_ip);\n#endif\n    } else {\n        firewall_rules(&context, 0, 1);\n    }\n    signal(SIGINT, signal_handler);\n    signal(SIGTERM, signal_handler);\n    if (doit(&context) != 0) {\n        return -1;\n    }\n    firewall_rules(&context, 0, 0);\n    puts(\"Done.\");\n\n    return 0;\n",
       "resources": [],
       "llm_summary": ""
     }
